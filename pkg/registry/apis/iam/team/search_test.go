@@ -32,9 +32,7 @@ import (
 	"github.com/grafana/grafana/pkg/storage/unified/search/builders"
 )
 
-func TestTeamSearchFallback(t *testing.T) {
-	t.Skip("Skipping team search fallback test: https://github.com/grafana/identity-access-team/issues/2048")
-
+func TestTeamSearchBackendSelection(t *testing.T) {
 	testCases := []struct {
 		name                  string
 		mode                  rest.DualWriterMode
@@ -50,8 +48,8 @@ func TestTeamSearchFallback(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			mockClient := &MockClient{}
-			mockLegacyClient := &MockClient{}
+			mockClient := &fakeSearchBackend{}
+			mockLegacyClient := &fakeSearchBackend{}
 
 			cfg := &setting.Cfg{
 				UnifiedStorage: map[string]setting.UnifiedStorageConfig{
@@ -59,7 +57,7 @@ func TestTeamSearchFallback(t *testing.T) {
 				},
 			}
 			dual := dualwrite.ProvideServiceForTests(cfg)
-			searchClient := resource.NewSearchClient(dualwrite.NewSearchAdapter(dual), iamv0alpha1.TeamResourceInfo.GroupResource(), mockClient, mockLegacyClient)
+			searchClient := dualwrite.NewSelector[SearchBackend](dual, iamv0alpha1.TeamResourceInfo.GroupResource(), mockLegacyClient, mockClient)
 			searchHandler := NewSearchHandler(tracing.NewNoopTracerService(), searchClient, nil)
 
 			rr := httptest.NewRecorder()
@@ -69,12 +67,9 @@ func TestTeamSearchFallback(t *testing.T) {
 
 			searchHandler.DoTeamSearch(rr, req)
 
-			if !testCase.expectedUnifiedCalled && mockClient.LastSearchRequest != nil {
-				t.Fatalf("expected Unified Search NOT to be called, but it was")
-			}
-			if testCase.expectedLegacyCalled && mockLegacyClient.LastSearchRequest == nil {
-				t.Fatalf("expected Legacy Search to be called, but it was not")
-			}
+			require.Equal(t, http.StatusOK, rr.Code)
+			require.Equal(t, testCase.expectedUnifiedCalled, mockClient.lastQuery != nil)
+			require.Equal(t, testCase.expectedLegacyCalled, mockLegacyClient.lastQuery != nil)
 		})
 	}
 }
@@ -85,7 +80,7 @@ func TestSearchHandler(t *testing.T) {
 
 		searchHandler := SearchHandler{
 			log:    log.New("grafana-apiserver.teams.search"),
-			client: mockClient,
+			client: selectorForBackend(NewUnifiedSearchClient(mockClient)),
 			tracer: tracing.NewNoopTracerService(),
 		}
 
@@ -120,7 +115,7 @@ func TestSearchHandler(t *testing.T) {
 
 		searchHandler := SearchHandler{
 			log:    log.New("grafana-apiserver.teams.search"),
-			client: mockClient,
+			client: selectorForBackend(NewUnifiedSearchClient(mockClient)),
 			tracer: tracing.NewNoopTracerService(),
 		}
 
@@ -201,7 +196,7 @@ func TestSearchHandler(t *testing.T) {
 				},
 			}
 			dual := dualwrite.ProvideServiceForTests(cfg)
-			searchClient := resource.NewSearchClient(dualwrite.NewSearchAdapter(dual), iamv0alpha1.TeamResourceInfo.GroupResource(), mockClient, mockClient)
+			searchClient := dualwrite.NewSelector[SearchBackend](dual, iamv0alpha1.TeamResourceInfo.GroupResource(), NewUnifiedSearchClient(mockClient), NewUnifiedSearchClient(mockClient))
 			searchHandler := NewSearchHandler(tracing.NewNoopTracerService(), searchClient, nil)
 
 			rr := httptest.NewRecorder()
@@ -233,7 +228,7 @@ func TestSearchHandler(t *testing.T) {
 
 		searchHandler := &SearchHandler{
 			log:    log.New("grafana-apiserver.teams.search"),
-			client: mockClient,
+			client: selectorForBackend(NewUnifiedSearchClient(mockClient)),
 			tracer: tracing.NewNoopTracerService(),
 		}
 
@@ -255,7 +250,7 @@ func TestSearchHandler(t *testing.T) {
 
 				searchHandler := &SearchHandler{
 					log:    log.New("grafana-apiserver.teams.search"),
-					client: mockClient,
+					client: selectorForBackend(NewUnifiedSearchClient(mockClient)),
 					tracer: tracing.NewNoopTracerService(),
 				}
 
@@ -758,21 +753,9 @@ func (m *MockClient) GetQuotaUsage(ctx context.Context, in *resourcepb.QuotaUsag
 	return nil, nil
 }
 
-func mockTeamClientWithHits() *MockClient {
-	return &MockClient{
-		MockResponses: []*resourcepb.ResourceSearchResponse{
-			{
-				Results: &resourcepb.ResourceTable{
-					Columns: []*resourcepb.ResourceTableColumnDefinition{
-						{Name: "title"},
-					},
-					Rows: []*resourcepb.ResourceTableRow{
-						{Key: &resourcepb.ResourceKey{Name: "team-1"}, Cells: [][]byte{[]byte("Team One")}},
-						{Key: &resourcepb.ResourceKey{Name: "team-2"}, Cells: [][]byte{[]byte("Team Two")}},
-					},
-				},
-				TotalHits: 2,
-			},
-		},
-	}
+func mockTeamClientWithHits() *dualwrite.Selector[SearchBackend] {
+	return selectorForBackend(&fakeSearchBackend{hits: []iamv0alpha1.GetSearchTeamsTeamHit{
+		{Name: "team-1", Title: "Team One"},
+		{Name: "team-2", Title: "Team Two"},
+	}})
 }
