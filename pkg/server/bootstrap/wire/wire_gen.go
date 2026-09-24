@@ -666,11 +666,11 @@ func Initialize(ctx context.Context, cfg *setting.Cfg, opts server.Options, apiO
 		return nil, err
 	}
 	ruleMutationValidator := provisioning2.ProvideRuleMutationValidator()
-	mailer, err := notifications.ProvideSmtpService(cfg)
+	mailer, err := notifications.ProvideSmtpService(cfg, configProvider)
 	if err != nil {
 		return nil, err
 	}
-	notificationService, err := notifications.ProvideService(inProcBus, cfg, mailer, tempuserService)
+	notificationService, err := notifications.ProvideService(inProcBus, cfg, configProvider, mailer, tempuserService)
 	if err != nil {
 		return nil, err
 	}
@@ -1433,11 +1433,11 @@ func InitializeForTest(ctx context.Context, t sqlutil.ITestDB, testingT interfac
 		return nil, err
 	}
 	ruleMutationValidator := provisioning2.ProvideRuleMutationValidator()
-	mailer, err := notifications.ProvideSmtpService(cfg)
+	mailer, err := notifications.ProvideSmtpService(cfg, configProvider)
 	if err != nil {
 		return nil, err
 	}
-	notificationService, err := notifications.ProvideService(inProcBus, cfg, mailer, tempuserService)
+	notificationService, err := notifications.ProvideService(inProcBus, cfg, configProvider, mailer, tempuserService)
 	if err != nil {
 		return nil, err
 	}
