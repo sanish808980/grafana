@@ -1,4 +1,4 @@
----
+  ---
 aliases:
   - /docs/grafana/latest/setup-grafana/configure-grafana/feature-toggles/
   - ../../administration/feature-toggles/ # /docs/grafana/latest/administration/feature-toggles/
